@@ -1,258 +1,165 @@
-// harness v0.1: run the load driver, SIGKILL worker0 at killAt, restart it at
-// restartAt, then compute recovery time from the driver's request log.
-//
-// Reversal: before the kill, the restart command is written to a journal.
-// The journal is replayed on normal exit, on SIGINT/SIGTERM, and at the start
-// of the next run if the harness died without replaying it.
+// harness runs each fault in a scenario against a live stack and writes a
+// report; `harness report` renders that report as a markdown table.
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"log"
-	"math"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
 	"strconv"
-	"strings"
-	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
 
-const (
-	pidFile     = "run/worker0.pid"
-	journalFile = "run/fault.journal"
-	requestLog  = "run/requests.jsonl"
-	workerLog   = "run/worker0.log"
-
-	duration    = 60 * time.Second
-	killAt      = 20 * time.Second
-	restartAt   = 30 * time.Second
-	baselineLo  = 5  // seconds
-	baselineHi  = 20 // seconds, exclusive
-	recoveryPct = 0.95
-	sustainSecs = 10
-	smoothSecs  = 3
-)
-
-var restartCmd = []string{"bin/fakeworker", "-port", "8001", "-pidfile", pidFile}
-
-var driverCmd = []string{
-	"python3", "driver/driver.py",
-	"--url", "http://127.0.0.1:8000/v1/completions",
-	"--concurrency", "8",
-	"--duration", strconv.Itoa(int(duration.Seconds())),
-	"--out", requestLog,
-}
-
-type journal struct {
-	Fault   string   `json:"fault"`
-	Restart []string `json:"restart"`
-}
-
-var reverseMu sync.Mutex
-
-// reverse replays the journal if one exists. Safe to call more than once.
-func reverse() {
-	reverseMu.Lock()
-	defer reverseMu.Unlock()
-	data, err := os.ReadFile(journalFile)
-	if errors.Is(err, os.ErrNotExist) {
-		return
-	}
-	if err != nil {
-		log.Printf("reverse: read journal: %v", err)
-		return
-	}
-	var j journal
-	if err := json.Unmarshal(data, &j); err != nil {
-		log.Printf("reverse: bad journal: %v", err)
-		return
-	}
-	if err := startDetached(j.Restart); err != nil {
-		log.Printf("reverse: restart failed, journal kept: %v", err)
-		return
-	}
-	os.Remove(journalFile)
-	log.Printf("reversed %s: ran %s", j.Fault, strings.Join(j.Restart, " "))
-}
-
-// startDetached starts cmd in its own process group so it outlives the harness.
-func startDetached(cmd []string) error {
-	out, err := os.OpenFile(workerLog, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	c := exec.Command(cmd[0], cmd[1:]...)
-	c.Stdout, c.Stderr = out, out
-	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := c.Start(); err != nil {
-		return err
-	}
-	return c.Process.Release()
-}
-
-func killWorker() error {
-	data, err := os.ReadFile(pidFile)
-	if err != nil {
-		return err
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		return err
-	}
-	j, _ := json.Marshal(journal{Fault: "kill_backend worker0", Restart: restartCmd})
-	if err := os.WriteFile(journalFile, j, 0o644); err != nil {
-		return err // no journal, no fault
-	}
-	return syscall.Kill(pid, syscall.SIGKILL)
-}
+var driver atomic.Pointer[exec.Cmd]
 
 func main() {
-	log.SetFlags(log.Ltime | log.Lmicroseconds)
+	log.SetFlags(log.Ltime)
+	if len(os.Args) < 2 {
+		usage()
+	}
+	var err error
+	switch os.Args[1] {
+	case "run":
+		err = cmdRun(os.Args[2:])
+	case "report":
+		err = cmdReport(os.Args[2:])
+	default:
+		usage()
+	}
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func usage() {
+	fmt.Fprintln(os.Stderr, "usage: harness run --scenario FILE [--out report.json]\n       harness report FILE [--format md]")
+	os.Exit(2)
+}
+
+func cmdRun(args []string) error {
+	fs := flag.NewFlagSet("run", flag.ExitOnError)
+	path := fs.String("scenario", "", "scenario YAML")
+	out := fs.String("out", "report.json", "report path")
+	fs.Parse(args)
+	sc, raw, err := loadScenario(*path)
+	if err != nil {
+		return err
+	}
 	os.MkdirAll("run", 0o755)
 
-	// A leftover journal means a previous run died mid-fault.
-	reverse()
+	reverse() // left over from a crashed run
 	defer reverse()
-
-	driver := exec.Command(driverCmd[0], driverCmd[1:]...)
-	driver.Stdout, driver.Stderr = os.Stdout, os.Stderr
-
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		s := <-sigs
-		log.Printf("got %v, reversing fault", s)
+		log.Printf("got %v", <-sigs)
 		reverse()
-		if driver.Process != nil {
-			driver.Process.Kill()
+		if d := driver.Load(); d != nil {
+			d.Process.Kill()
 		}
 		os.Exit(1)
 	}()
 
+	host, _ := os.Hostname()
+	rep := Report{
+		Stack: sc.Stack, Version: sc.Version, Model: sc.Model,
+		Host:     Host{Name: host, OS: runtime.GOOS, Arch: runtime.GOARCH, CPUs: runtime.NumCPU(), Go: runtime.Version()},
+		Started:  time.Now().UTC(),
+		Scenario: string(raw),
+	}
+	for i, f := range sc.Faults {
+		log.Printf("fault %d/%d: %s on %s", i+1, len(sc.Faults), f.Type, f.Target)
+		res := runFault(sc, i, f)
+		if res.Error != "" {
+			log.Printf("  error: %s", res.Error)
+		}
+		rep.Results = append(rep.Results, res)
+	}
+
+	data, _ := json.MarshalIndent(rep, "", "  ")
+	if err := os.WriteFile(*out, data, 0o644); err != nil {
+		return err
+	}
+	log.Printf("wrote %s", *out)
+	return nil
+}
+
+func runFault(sc *Scenario, i int, f Fault) Result {
+	res := Result{Fault: f.Type, Target: f.Target, AtS: f.At.Seconds(), DurationS: f.Duration.Seconds(), Netem: f.Netem}
+	fail := func(err error) Result {
+		res.Error = err.Error()
+		return res
+	}
+	w, _ := sc.worker(f.Target)
+	if f.Type == "slow_network" && runtime.GOOS != "linux" {
+		return fail(errors.New("needs Linux (tc netem)"))
+	}
+	if err := waitHealthy(sc.Target.Workers, time.Minute); err != nil {
+		return fail(err)
+	}
+
+	reqLog := fmt.Sprintf("run/requests-%d.jsonl", i)
+	d := exec.Command("python3", "driver/driver.py",
+		"--url", sc.Target.Router,
+		"--concurrency", strconv.Itoa(sc.Load.Concurrency),
+		"--duration", fmt.Sprint(sc.Load.Duration.Seconds()),
+		"--out", reqLog)
+	d.Stdout, d.Stderr = os.Stdout, os.Stderr
 	t0 := time.Now()
-	if err := driver.Start(); err != nil {
-		log.Printf("start driver: %v", err)
-		return
+	if err := d.Start(); err != nil {
+		return fail(err)
 	}
-	log.Printf("driver started, %s run", duration)
+	driver.Store(d)
 
-	time.Sleep(killAt - time.Since(t0))
-	killTime := time.Now()
-	if err := killWorker(); err != nil {
-		log.Printf("kill worker0: %v", err)
-		driver.Process.Kill()
-		return
+	time.Sleep(f.At - time.Since(t0))
+	inject := time.Now()
+	if err := applyFault(f, w); err != nil {
+		d.Process.Kill()
+		d.Wait()
+		return fail(err)
 	}
-	log.Printf("SIGKILL worker0")
-
-	time.Sleep(restartAt - time.Since(t0))
-	restartTime := time.Now()
+	time.Sleep(f.At + f.Duration - time.Since(t0))
+	clear := time.Now()
 	reverse()
 
-	if err := driver.Wait(); err != nil {
-		log.Printf("driver: %v", err)
-		return
+	if err := d.Wait(); err != nil {
+		return fail(fmt.Errorf("driver: %w", err))
 	}
-
-	if err := analyze(t0, killTime, restartTime); err != nil {
-		log.Printf("analyze: %v", err)
-	}
-}
-
-type record struct {
-	Start float64 `json:"start"`
-	End   float64 `json:"end"`
-	OK    bool    `json:"ok"`
-}
-
-func analyze(t0, killTime, restartTime time.Time) error {
-	f, err := os.Open(requestLog)
+	m, err := analyze(reqLog, t0, inject, clear, sc.Load.Duration)
 	if err != nil {
-		return err
+		return fail(err)
 	}
-	defer f.Close()
+	res.Metrics = m
+	return res
+}
 
-	origin := float64(t0.UnixNano()) / 1e9
-	nsec := int(duration.Seconds())
-	perSec := make([]int, nsec+1)
-	failed := 0
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		var r record
-		if err := json.Unmarshal(sc.Bytes(), &r); err != nil {
-			return err
-		}
-		if !r.OK {
-			failed++
-			continue
-		}
-		s := int(r.End - origin)
-		if s >= 0 && s <= nsec {
-			perSec[s]++
-		}
-	}
-	if err := sc.Err(); err != nil {
-		return err
-	}
-
-	base := 0.0
-	for s := baselineLo; s < baselineHi; s++ {
-		base += float64(perSec[s])
-	}
-	base /= baselineHi - baselineLo
-
-	restartSec := restartTime.Sub(t0).Seconds()
-	recovered := -1.0
-	// Per-second counts dip ~15% every few seconds from bucket-boundary
-	// quantization, so compare a forward rolling mean, not raw counts.
-	smooth := func(k int) float64 {
-		sum := 0
-		for i := k; i < k+smoothSecs; i++ {
-			sum += perSec[i]
-		}
-		return float64(sum) / smoothSecs
-	}
-	for s := int(math.Ceil(restartSec)); s+sustainSecs+smoothSecs-1 <= nsec; s++ {
-		ok := true
-		for k := s; k < s+sustainSecs; k++ {
-			if smooth(k) < recoveryPct*base {
-				ok = false
-				break
+func waitHealthy(ws []Worker, timeout time.Duration) error {
+	c := http.Client{Timeout: time.Second}
+	deadline := time.Now().Add(timeout)
+	for _, w := range ws {
+		for {
+			resp, err := c.Get(w.Health)
+			if err == nil {
+				resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					break
+				}
 			}
-		}
-		if ok {
-			recovered = float64(s) - restartSec
-			break
+			if time.Now().After(deadline) {
+				return fmt.Errorf("%s not healthy after %s", w.Health, timeout)
+			}
+			time.Sleep(500 * time.Millisecond)
 		}
 	}
-
-	fmt.Println()
-	fmt.Println("throughput per second (ok requests):")
-	for s, n := range perSec[:nsec] {
-		mark := ""
-		switch s {
-		case int(killTime.Sub(t0).Seconds()):
-			mark = "  <- kill"
-		case int(restartSec):
-			mark = "  <- restart"
-		}
-		fmt.Printf("  %3ds %4d%s\n", s, n, mark)
-	}
-	fmt.Println()
-	fmt.Printf("baseline throughput: %.1f req/s\n", base)
-	fmt.Printf("requests failed:     %d\n", failed)
-	if recovered < 0 {
-		fmt.Printf("recovery time:       not recovered within run\n")
-	} else {
-		fmt.Printf("recovery time:       %.1fs (restart to %d%% baseline, %ds rolling mean, sustained %ds)\n",
-			recovered, int(recoveryPct*100), smoothSecs, sustainSecs)
-	}
+	time.Sleep(2 * time.Second) // let the router's own health checks catch up
 	return nil
 }

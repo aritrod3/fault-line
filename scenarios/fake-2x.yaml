@@ -1,0 +1,34 @@
+stack: fakeworker
+version: dev
+model: none
+
+target:
+  router: http://127.0.0.1:8000/v1/completions
+  workers:
+    - start: [bin/fakeworker, -port, "8001", -pidfile, run/worker0.pid]
+      pid_file: run/worker0.pid
+      health: http://127.0.0.1:8001/health
+      iface: lo0
+    - start: [bin/fakeworker, -port, "8002", -pidfile, run/worker1.pid]
+      pid_file: run/worker1.pid
+      health: http://127.0.0.1:8002/health
+      iface: lo0
+
+load:
+  concurrency: 8
+  duration: 60s
+
+faults:
+  - type: kill_backend
+    target: workers[0]
+    at: 20s
+    duration: 10s
+  - type: hang_backend
+    target: workers[0]
+    at: 20s
+    duration: 10s
+  - type: slow_network
+    target: workers[0]
+    at: 20s
+    duration: 10s
+    netem: delay 200ms loss 5%
