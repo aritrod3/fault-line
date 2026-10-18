@@ -17,6 +17,7 @@ type Scenario struct {
 		Workers []Worker `yaml:"workers"`
 	} `yaml:"target"`
 	Load struct {
+		Prompts     string        `yaml:"prompts"`
 		Concurrency int           `yaml:"concurrency"`
 		Duration    time.Duration `yaml:"duration"`
 	} `yaml:"load"`
@@ -28,6 +29,8 @@ type Worker struct {
 	PIDFile string   `yaml:"pid_file"`
 	Health  string   `yaml:"health"`
 	Iface   string   `yaml:"iface"`
+	// PID of a corrupter in front of this worker, if any.
+	CorruptPIDFile string `yaml:"corrupt_pid_file"`
 }
 
 type Fault struct {
@@ -49,12 +52,16 @@ func loadScenario(path string) (*Scenario, []byte, error) {
 	}
 	for _, f := range sc.Faults {
 		switch f.Type {
-		case "kill_backend", "hang_backend", "slow_network":
+		case "kill_backend", "hang_backend", "slow_network", "corrupt_output":
 		default:
 			return nil, nil, fmt.Errorf("unknown fault type %q", f.Type)
 		}
-		if _, err := sc.worker(f.Target); err != nil {
+		w, err := sc.worker(f.Target)
+		if err != nil {
 			return nil, nil, err
+		}
+		if f.Type == "corrupt_output" && w.CorruptPIDFile == "" {
+			return nil, nil, fmt.Errorf("corrupt_output: %s has no corrupt_pid_file", f.Target)
 		}
 		if f.At < 2*baselineFrom*time.Second {
 			return nil, nil, fmt.Errorf("%s: at must be >= %ds to leave room for a baseline", f.Type, 2*baselineFrom)

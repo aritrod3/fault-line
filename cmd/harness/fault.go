@@ -38,6 +38,14 @@ func applyFault(f Fault, w Worker) error {
 			apply = []string{"kill", "-STOP", p}
 			j.Undo = []string{"kill", "-CONT", p}
 		}
+	case "corrupt_output":
+		pid, err := os.ReadFile(w.CorruptPIDFile)
+		if err != nil {
+			return err
+		}
+		p := strings.TrimSpace(string(pid))
+		apply = []string{"kill", "-USR1", p}
+		j.Undo = []string{"kill", "-USR2", p}
 	case "slow_network":
 		apply = append([]string{"tc", "qdisc", "add", "dev", w.Iface, "root", "netem"}, strings.Fields(f.Netem)...)
 		j.Undo = []string{"tc", "qdisc", "del", "dev", w.Iface, "root"}

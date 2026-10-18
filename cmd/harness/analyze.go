@@ -22,17 +22,21 @@ type Metrics struct {
 	DetectionS     *float64 `json:"detection_s"` // nil: no reaction seen
 	RecoveryS      *float64 `json:"recovery_s"`  // nil: not recovered within run
 	Lost           int      `json:"lost"`
+	Corrupted      *int     `json:"corrupted"` // nil: no baseline
 	ThroughputFrac float64  `json:"throughput_frac"`
 	P99Frac        float64  `json:"p99_frac"`
 }
 
 type record struct {
-	Start float64 `json:"start"`
-	End   float64 `json:"end"`
-	OK    bool    `json:"ok"`
+	Start  float64 `json:"start"`
+	End    float64 `json:"end"`
+	OK     bool    `json:"ok"`
+	Prompt int     `json:"prompt"`
+	Text   string  `json:"text"`
 }
 
-func analyze(path string, t0, inject, clear time.Time, dur time.Duration) (*Metrics, error) {
+// readRecords reads a driver log, with times relative to origin (unix seconds).
+func readRecords(path string, origin float64) ([]record, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -40,17 +44,24 @@ func analyze(path string, t0, inject, clear time.Time, dur time.Duration) (*Metr
 	defer f.Close()
 	var recs []record
 	sc := bufio.NewScanner(f)
+	sc.Buffer(nil, 1<<20)
 	for sc.Scan() {
 		var r record
 		if err := json.Unmarshal(sc.Bytes(), &r); err != nil {
 			return nil, err
 		}
-		// Times relative to the start of the run.
-		r.Start -= unix(t0)
-		r.End -= unix(t0)
+		r.Start -= origin
+		r.End -= origin
 		recs = append(recs, r)
 	}
-	if err := sc.Err(); err != nil {
+	return recs, sc.Err()
+}
+
+// analyze computes metrics for one fault window. ref maps prompt index to
+// its baseline response; nil means corruption is not measured.
+func analyze(path string, t0, inject, clear time.Time, dur time.Duration, ref map[int]string) (*Metrics, error) {
+	recs, err := readRecords(path, unix(t0))
+	if err != nil {
 		return nil, err
 	}
 	in, cl := inject.Sub(t0).Seconds(), clear.Sub(t0).Seconds()
@@ -97,6 +108,16 @@ func analyze(path string, t0, inject, clear time.Time, dur time.Duration) (*Metr
 	}
 	if !math.IsInf(det, 1) {
 		m.DetectionS = ptr(det - in)
+	}
+
+	if ref != nil {
+		bad := 0
+		for _, r := range recs {
+			if want, ok := ref[r.Prompt]; ok && r.OK && r.End >= in && r.Text != want {
+				bad++
+			}
+		}
+		m.Corrupted = &bad
 	}
 
 	for s := int(math.Ceil(cl)); s+sustainSecs+smoothSecs-1 <= n; s++ {
