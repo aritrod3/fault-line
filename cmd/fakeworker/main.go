@@ -1,9 +1,11 @@
 // fakeworker stands in for a vLLM worker. It sleeps -load-delay before
 // listening (model load), then serves /v1/completions with a fixed latency
-// and a fixed number of concurrent slots (batch capacity).
+// and a fixed number of concurrent slots (batch capacity). Output is
+// deterministic: it echoes the prompt.
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -35,11 +37,17 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	})
 	http.HandleFunc("/v1/completions", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Prompt string `json:"prompt"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
 		sem <- struct{}{}
 		defer func() { <-sem }()
 		time.Sleep(*latency)
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"choices":[{"text":"ok from :%d"}]}`, *port)
+		json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]string{{"text": "echo: " + req.Prompt}},
+		})
 	})
 
 	log.Printf("listening on :%d", *port)

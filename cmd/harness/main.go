@@ -28,6 +28,8 @@ func main() {
 	}
 	var err error
 	switch os.Args[1] {
+	case "baseline":
+		err = cmdBaseline(os.Args[2:])
 	case "run":
 		err = cmdRun(os.Args[2:])
 	case "report":
@@ -41,13 +43,16 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: harness run --scenario FILE [--out report.json]\n       harness report FILE [--format md]")
+	fmt.Fprintln(os.Stderr, `usage: harness baseline --scenario FILE [--out baseline.json] [--duration 20s]
+       harness run --scenario FILE [--baseline baseline.json] [--out report.json]
+       harness report FILE [--format md]`)
 	os.Exit(2)
 }
 
 func cmdRun(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	path := fs.String("scenario", "", "scenario YAML")
+	basePath := fs.String("baseline", "baseline.json", "baseline from `harness baseline`")
 	out := fs.String("out", "report.json", "report path")
 	fs.Parse(args)
 	sc, raw, err := loadScenario(*path)
@@ -55,6 +60,16 @@ func cmdRun(args []string) error {
 		return err
 	}
 	os.MkdirAll("run", 0o755)
+
+	var base *Baseline
+	var ref map[int]string
+	if data, err := os.ReadFile(*basePath); err != nil {
+		log.Printf("no baseline, corruption not measured: %v", err)
+	} else if err := json.Unmarshal(data, &base); err != nil {
+		return err
+	} else if len(base.Responses) > 0 {
+		ref = base.Responses
+	}
 
 	reverse() // left over from a crashed run
 	defer reverse()
@@ -75,10 +90,11 @@ func cmdRun(args []string) error {
 		Host:     Host{Name: host, OS: runtime.GOOS, Arch: runtime.GOARCH, CPUs: runtime.NumCPU(), Go: runtime.Version()},
 		Started:  time.Now().UTC(),
 		Scenario: string(raw),
+		Baseline: base,
 	}
 	for i, f := range sc.Faults {
 		log.Printf("fault %d/%d: %s on %s", i+1, len(sc.Faults), f.Type, f.Target)
-		res := runFault(sc, i, f)
+		res := runFault(sc, i, f, ref)
 		if res.Error != "" {
 			log.Printf("  error: %s", res.Error)
 		}
@@ -93,7 +109,7 @@ func cmdRun(args []string) error {
 	return nil
 }
 
-func runFault(sc *Scenario, i int, f Fault) Result {
+func runFault(sc *Scenario, i int, f Fault, ref map[int]string) Result {
 	res := Result{Fault: f.Type, Target: f.Target, AtS: f.At.Seconds(), DurationS: f.Duration.Seconds(), Netem: f.Netem}
 	fail := func(err error) Result {
 		res.Error = err.Error()
@@ -108,17 +124,11 @@ func runFault(sc *Scenario, i int, f Fault) Result {
 	}
 
 	reqLog := fmt.Sprintf("run/requests-%d.jsonl", i)
-	d := exec.Command("python3", "driver/driver.py",
-		"--url", sc.Target.Router,
-		"--concurrency", strconv.Itoa(sc.Load.Concurrency),
-		"--duration", fmt.Sprint(sc.Load.Duration.Seconds()),
-		"--out", reqLog)
-	d.Stdout, d.Stderr = os.Stdout, os.Stderr
 	t0 := time.Now()
-	if err := d.Start(); err != nil {
+	d, err := startDriver(sc, sc.Load.Duration, reqLog)
+	if err != nil {
 		return fail(err)
 	}
-	driver.Store(d)
 
 	time.Sleep(f.At - time.Since(t0))
 	inject := time.Now()
@@ -134,12 +144,28 @@ func runFault(sc *Scenario, i int, f Fault) Result {
 	if err := d.Wait(); err != nil {
 		return fail(fmt.Errorf("driver: %w", err))
 	}
-	m, err := analyze(reqLog, t0, inject, clear, sc.Load.Duration)
+	m, err := analyze(reqLog, t0, inject, clear, sc.Load.Duration, ref)
 	if err != nil {
 		return fail(err)
 	}
 	res.Metrics = m
 	return res
+}
+
+func startDriver(sc *Scenario, dur time.Duration, out string) (*exec.Cmd, error) {
+	d := exec.Command("python3", "driver/driver.py",
+		"--url", sc.Target.Router,
+		"--prompts", sc.Load.Prompts,
+		"--model", sc.Model,
+		"--concurrency", strconv.Itoa(sc.Load.Concurrency),
+		"--duration", fmt.Sprint(dur.Seconds()),
+		"--out", out)
+	d.Stdout, d.Stderr = os.Stdout, os.Stderr
+	if err := d.Start(); err != nil {
+		return nil, err
+	}
+	driver.Store(d)
+	return d, nil
 }
 
 func waitHealthy(ws []Worker, timeout time.Duration) error {

@@ -15,6 +15,7 @@ type Report struct {
 	Host     Host      `json:"host"`
 	Started  time.Time `json:"started"`
 	Scenario string    `json:"scenario"` // the YAML exactly as run
+	Baseline *Baseline `json:"baseline,omitempty"`
 	Results  []Result  `json:"results"`
 }
 
@@ -57,15 +58,24 @@ func cmdReport(args []string) error {
 
 	fmt.Printf("## %s %s · model %s\n\n", r.Stack, r.Version, r.Model)
 	fmt.Printf("%s, %s/%s, %d CPUs, %s · %s\n\n", r.Host.Name, r.Host.OS, r.Host.Arch, r.Host.CPUs, r.Host.Go, r.Started.Format(time.RFC3339))
-	fmt.Println("| Fault | Target | Detection | Recovery | Lost | Throughput | p99 |")
-	fmt.Println("| --- | --- | --- | --- | --- | --- | --- |")
+	if b := r.Baseline; b != nil {
+		fmt.Printf("Baseline: %d prompts deterministic, %d not.\n\n", len(b.Responses), len(b.Nondeterministic))
+	} else {
+		fmt.Print("No baseline: corruption not measured.\n\n")
+	}
+	fmt.Println("| Fault | Target | Detection | Recovery | Lost | Corrupted | Throughput | p99 |")
+	fmt.Println("| --- | --- | --- | --- | --- | --- | --- | --- |")
 	for _, res := range r.Results {
 		if m := res.Metrics; m != nil {
-			fmt.Printf("| %s | %s | %s | %s | %d | %.2f× | %.1f× |\n",
+			corrupted := "–"
+			if m.Corrupted != nil {
+				corrupted = fmt.Sprint(*m.Corrupted)
+			}
+			fmt.Printf("| %s | %s | %s | %s | %d | %s | %.2f× | %.1f× |\n",
 				res.Fault, res.Target, secs(m.DetectionS, "none"), secs(m.RecoveryS, "not recovered"),
-				m.Lost, m.ThroughputFrac, m.P99Frac)
+				m.Lost, corrupted, m.ThroughputFrac, m.P99Frac)
 		} else {
-			fmt.Printf("| %s | %s | error: %s | | | | |\n", res.Fault, res.Target, res.Error)
+			fmt.Printf("| %s | %s | error: %s | | | | | |\n", res.Fault, res.Target, res.Error)
 		}
 	}
 	return nil

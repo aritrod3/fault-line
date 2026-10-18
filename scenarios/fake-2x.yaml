@@ -13,8 +13,10 @@ target:
       pid_file: run/worker1.pid
       health: http://127.0.0.1:8002/health
       iface: lo0
+      corrupt_pid_file: run/corrupter1.pid
 
 load:
+  prompts: prompts/basic.jsonl
   concurrency: 8
   duration: 60s
 
@@ -32,3 +34,7 @@ faults:
     at: 20s
     duration: 10s
     netem: delay 200ms loss 5%
+  - type: corrupt_output
+    target: workers[1]
+    at: 20s
+    duration: 10s
