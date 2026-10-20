@@ -29,6 +29,7 @@ type Worker struct {
 	PIDFile string   `yaml:"pid_file"`
 	Health  string   `yaml:"health"`
 	Iface   string   `yaml:"iface"`
+	Port    int      `yaml:"port"` // if set, slow_network only delays this port
 	// PID of a corrupter in front of this worker, if any.
 	CorruptPIDFile string `yaml:"corrupt_pid_file"`
 }
