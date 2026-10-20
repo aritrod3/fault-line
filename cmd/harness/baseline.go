@@ -28,7 +28,7 @@ func cmdBaseline(args []string) error {
 		return err
 	}
 	os.MkdirAll("run", 0o755)
-	if err := waitHealthy(sc.Target.Workers, time.Minute); err != nil {
+	if err := waitHealthy(sc.Target.Workers, 5*time.Minute); err != nil {
 		return err
 	}
 

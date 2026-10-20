@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -87,7 +88,7 @@ func cmdRun(args []string) error {
 	host, _ := os.Hostname()
 	rep := Report{
 		Stack: sc.Stack, Version: sc.Version, Model: sc.Model,
-		Host:     Host{Name: host, OS: runtime.GOOS, Arch: runtime.GOARCH, CPUs: runtime.NumCPU(), Go: runtime.Version()},
+		Host:     Host{Name: host, OS: runtime.GOOS, Arch: runtime.GOARCH, CPUs: runtime.NumCPU(), GPU: gpu(), Go: runtime.Version()},
 		Started:  time.Now().UTC(),
 		Scenario: string(raw),
 		Baseline: base,
@@ -119,7 +120,7 @@ func runFault(sc *Scenario, i int, f Fault, ref map[int]string) Result {
 	if f.Type == "slow_network" && runtime.GOOS != "linux" {
 		return fail(errors.New("needs Linux (tc netem)"))
 	}
-	if err := waitHealthy(sc.Target.Workers, time.Minute); err != nil {
+	if err := waitHealthy(sc.Target.Workers, 5*time.Minute); err != nil {
 		return fail(err)
 	}
 
@@ -150,6 +151,14 @@ func runFault(sc *Scenario, i int, f Fault, ref map[int]string) Result {
 	}
 	res.Metrics = m
 	return res
+}
+
+func gpu() string {
+	out, err := exec.Command("nvidia-smi", "--query-gpu=name", "--format=csv,noheader").Output()
+	if err != nil {
+		return "none"
+	}
+	return strings.Join(strings.Fields(string(out)), " ")
 }
 
 func startDriver(sc *Scenario, dur time.Duration, out string) (*exec.Cmd, error) {

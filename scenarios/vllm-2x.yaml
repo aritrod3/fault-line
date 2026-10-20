@@ -1,0 +1,42 @@
+stack: vllm
+version: FILL-ME # ~/vllm-venv/bin/vllm --version
+model: Qwen/Qwen2.5-0.5B-Instruct
+
+target:
+  router: http://127.0.0.1:8000/v1/completions
+  workers:
+    - start: [scripts/vllm-worker.sh, "0", "8001"]
+      pid_file: run/vllm0.pid
+      health: http://127.0.0.1:8001/health
+      iface: lo
+      port: 8001
+    - start: [scripts/vllm-worker.sh, "1", "8002"]
+      pid_file: run/vllm1.pid
+      health: http://127.0.0.1:8002/health
+      iface: lo
+      port: 8002
+      corrupt_pid_file: run/corrupter1.pid
+
+load:
+  prompts: prompts/basic.jsonl
+  concurrency: 8
+  duration: 150s # long enough for a killed worker to reload
+
+faults:
+  - type: kill_backend
+    target: workers[0]
+    at: 20s
+    duration: 10s
+  - type: hang_backend
+    target: workers[0]
+    at: 20s
+    duration: 10s
+  - type: slow_network
+    target: workers[0]
+    at: 20s
+    duration: 10s
+    netem: delay 200ms loss 5%
+  - type: corrupt_output
+    target: workers[1]
+    at: 20s
+    duration: 10s

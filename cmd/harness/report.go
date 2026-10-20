@@ -24,6 +24,7 @@ type Host struct {
 	OS   string `json:"os"`
 	Arch string `json:"arch"`
 	CPUs int    `json:"cpus"`
+	GPU  string `json:"gpu"`
 	Go   string `json:"go"`
 }
 
@@ -57,7 +58,7 @@ func cmdReport(args []string) error {
 	}
 
 	fmt.Printf("## %s %s · model %s\n\n", r.Stack, r.Version, r.Model)
-	fmt.Printf("%s, %s/%s, %d CPUs, %s · %s\n\n", r.Host.Name, r.Host.OS, r.Host.Arch, r.Host.CPUs, r.Host.Go, r.Started.Format(time.RFC3339))
+	fmt.Printf("%s, %s/%s, %d CPUs, GPU %s, %s · %s\n\n", r.Host.Name, r.Host.OS, r.Host.Arch, r.Host.CPUs, r.Host.GPU, r.Host.Go, r.Started.Format(time.RFC3339))
 	if b := r.Baseline; b != nil {
 		fmt.Printf("Baseline: %d prompts deterministic, %d not.\n\n", len(b.Responses), len(b.Nondeterministic))
 	} else {
