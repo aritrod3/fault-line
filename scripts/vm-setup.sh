@@ -5,7 +5,7 @@ GO=go1.27.2
 MODEL="${MODEL:-Qwen/Qwen2.5-0.5B-Instruct}"
 
 sudo apt-get update -q
-sudo apt-get install -y -q python3-venv iproute2 curl
+sudo apt-get install -y -q python3-venv iproute2 curl fuse3
 
 arch=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
 file="$GO.linux-$arch.tar.gz"
