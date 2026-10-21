@@ -29,13 +29,14 @@ type Host struct {
 }
 
 type Result struct {
-	Fault     string   `json:"fault"`
-	Target    string   `json:"target"`
-	AtS       float64  `json:"at_s"`
-	DurationS float64  `json:"duration_s"`
-	Netem     string   `json:"netem,omitempty"`
-	Error     string   `json:"error,omitempty"`
-	Metrics   *Metrics `json:"metrics,omitempty"`
+	Fault      string   `json:"fault"`
+	Target     string   `json:"target"`
+	AtS        float64  `json:"at_s"`
+	DurationS  float64  `json:"duration_s"`
+	Netem      string   `json:"netem,omitempty"`
+	MemoryFrac float64  `json:"memory_frac,omitempty"`
+	Error      string   `json:"error,omitempty"`
+	Metrics    *Metrics `json:"metrics,omitempty"`
 }
 
 func cmdReport(args []string) error {

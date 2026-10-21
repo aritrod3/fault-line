@@ -111,14 +111,17 @@ func cmdRun(args []string) error {
 }
 
 func runFault(sc *Scenario, i int, f Fault, ref map[int]string) Result {
-	res := Result{Fault: f.Type, Target: f.Target, AtS: f.At.Seconds(), DurationS: f.Duration.Seconds(), Netem: f.Netem}
+	res := Result{Fault: f.Type, Target: f.Target, AtS: f.At.Seconds(), DurationS: f.Duration.Seconds(), Netem: f.Netem, MemoryFrac: f.MemoryFrac}
 	fail := func(err error) Result {
 		res.Error = err.Error()
 		return res
 	}
 	w, _ := sc.worker(f.Target)
-	if f.Type == "slow_network" && runtime.GOOS != "linux" {
-		return fail(errors.New("needs Linux (tc netem)"))
+	if runtime.GOOS != "linux" {
+		switch f.Type {
+		case "slow_network", "storage_stall", "memory_pressure":
+			return fail(errors.New("needs Linux"))
+		}
 	}
 	if err := waitHealthy(sc.Target.Workers, 5*time.Minute); err != nil {
 		return fail(err)

@@ -25,21 +25,23 @@ type Scenario struct {
 }
 
 type Worker struct {
-	Start   []string `yaml:"start"`
-	PIDFile string   `yaml:"pid_file"`
-	Health  string   `yaml:"health"`
-	Iface   string   `yaml:"iface"`
-	Port    int      `yaml:"port"` // if set, slow_network only delays this port
-	// PID of a corrupter in front of this worker, if any.
-	CorruptPIDFile string `yaml:"corrupt_pid_file"`
+	Start          []string `yaml:"start"`
+	PIDFile        string   `yaml:"pid_file"`
+	Health         string   `yaml:"health"`
+	Iface          string   `yaml:"iface"`
+	Port           int      `yaml:"port"`             // if set, slow_network only delays this port
+	CorruptPIDFile string   `yaml:"corrupt_pid_file"` // corrupter in front of this worker
+	SlowfsPIDFile  string   `yaml:"slowfs_pid_file"`  // slowfs serving its weights
+	Cgroup         string   `yaml:"cgroup"`           // cgroup v2 directory it runs in
 }
 
 type Fault struct {
-	Type     string        `yaml:"type"`
-	Target   string        `yaml:"target"`
-	At       time.Duration `yaml:"at"`
-	Duration time.Duration `yaml:"duration"`
-	Netem    string        `yaml:"netem"`
+	Type       string        `yaml:"type"`
+	Target     string        `yaml:"target"`
+	At         time.Duration `yaml:"at"`
+	Duration   time.Duration `yaml:"duration"`
+	Netem      string        `yaml:"netem"`
+	MemoryFrac float64       `yaml:"memory_frac"` // memory.max as a fraction of current usage
 }
 
 func loadScenario(path string) (*Scenario, []byte, error) {
@@ -51,9 +53,13 @@ func loadScenario(path string) (*Scenario, []byte, error) {
 	if err := yaml.Unmarshal(raw, &sc); err != nil {
 		return nil, nil, err
 	}
-	for _, f := range sc.Faults {
+	for i := range sc.Faults {
+		f := &sc.Faults[i]
+		if f.Type == "memory_pressure" && f.MemoryFrac == 0 {
+			f.MemoryFrac = 0.8
+		}
 		switch f.Type {
-		case "kill_backend", "hang_backend", "slow_network", "corrupt_output":
+		case "kill_backend", "hang_backend", "slow_network", "corrupt_output", "storage_stall", "memory_pressure":
 		default:
 			return nil, nil, fmt.Errorf("unknown fault type %q", f.Type)
 		}
@@ -61,8 +67,10 @@ func loadScenario(path string) (*Scenario, []byte, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		if f.Type == "corrupt_output" && w.CorruptPIDFile == "" {
-			return nil, nil, fmt.Errorf("corrupt_output: %s has no corrupt_pid_file", f.Target)
+		if f.Type == "corrupt_output" && w.CorruptPIDFile == "" ||
+			f.Type == "storage_stall" && w.SlowfsPIDFile == "" ||
+			f.Type == "memory_pressure" && w.Cgroup == "" {
+			return nil, nil, fmt.Errorf("%s: %s is missing the field this fault needs", f.Type, f.Target)
 		}
 		if f.At < 2*baselineFrom*time.Second {
 			return nil, nil, fmt.Errorf("%s: at must be >= %ds to leave room for a baseline", f.Type, 2*baselineFrom)
