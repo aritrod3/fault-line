@@ -1,5 +1,5 @@
 stack: vllm
-version: FILL-ME # ~/vllm-venv/bin/vllm --version
+version: 0.31.0
 model: Qwen/Qwen2.5-0.5B-Instruct
 
 target:
@@ -21,7 +21,7 @@ target:
 
 load:
   prompts: prompts/basic.jsonl
-  concurrency: 8
+  concurrency: 64
   duration: 180s # long enough for a killed worker to reload
 
 faults:

@@ -1,0 +1,137 @@
+{
+  "stack": "vllm",
+  "version": "0.31.0",
+  "model": "Qwen/Qwen2.5-0.5B-Instruct",
+  "host": {
+    "name": "faultline",
+    "os": "linux",
+    "arch": "amd64",
+    "cpus": 20,
+    "gpu": "NVIDIA H100 80GB HBM3",
+    "go": "go1.27.2"
+  },
+  "started": "2026-10-26T21:29:46.560623816Z",
+  "scenario": "stack: vllm\nversion: 0.31.0\nmodel: Qwen/Qwen2.5-0.5B-Instruct\n\ntarget:\n  router: http://127.0.0.1:8000/v1/completions\n  workers:\n    - start: [scripts/vllm-worker.sh, \"0\", \"8001\"]\n      pid_file: run/vllm0.pid\n      health: http://127.0.0.1:8001/health\n      iface: lo\n      port: 8001\n      slowfs_pid_file: run/slowfs.pid\n      cgroup: /sys/fs/cgroup/faultline-w0\n    - start: [scripts/vllm-worker.sh, \"1\", \"8002\"]\n      pid_file: run/vllm1.pid\n      health: http://127.0.0.1:8002/health\n      iface: lo\n      port: 8002\n      corrupt_pid_file: run/corrupter1.pid\n\nload:\n  prompts: prompts/basic.jsonl\n  concurrency: 64\n  duration: 180s # long enough for a killed worker to reload\n\nfaults:\n  - type: kill_backend\n    target: workers[0]\n    at: 20s\n    duration: 10s\n  - type: hang_backend\n    target: workers[0]\n    at: 20s\n    duration: 10s\n  - type: slow_network\n    target: workers[0]\n    at: 20s\n    duration: 10s\n    netem: delay 200ms loss 5%\n  - type: corrupt_output\n    target: workers[1]\n    at: 20s\n    duration: 10s\n  - type: storage_stall\n    target: workers[0]\n    at: 20s\n    duration: 30s # the reload starts on slow storage\n  - type: memory_pressure\n    target: workers[0]\n    at: 20s\n    duration: 10s\n    memory_frac: 0.8\n",
+  "baseline": {
+    "responses": {
+      "11": " The word is not a common one. It's actually quite rare, and it",
+      "13": " To determine the number of sides a hexagon has, we need to recall that",
+      "5": " It stands for Central Processing Unit. The CPU is the brain of a computer and",
+      "6": " Happy is synonymous with joyful, elated, and exuberant. These words",
+      "7": " A. 365 B. 366 C. 3",
+      "8": " The boiling point of water at standard atmospheric pressure (1 atmosphere) is 1",
+      "9": " Mercury is the largest planet in our solar system, with a diameter of about "
+    },
+    "nondeterministic": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      10,
+      12,
+      14,
+      15
+    ]
+  },
+  "results": [
+    {
+      "fault": "kill_backend",
+      "target": "workers[0]",
+      "at_s": 20,
+      "duration_s": 10,
+      "metrics": {
+        "baseline_rps": 665.0666666666667,
+        "baseline_p99_s": 0.1196286678314209,
+        "detection_s": 0.0024938684815687395,
+        "recovery_s": 26.992279662,
+        "lost": 33,
+        "corrupted": 3,
+        "throughput_frac": 0.7782010157711841,
+        "p99_frac": 1.3163670208207525
+      }
+    },
+    {
+      "fault": "hang_backend",
+      "target": "workers[0]",
+      "at_s": 20,
+      "duration_s": 10,
+      "metrics": {
+        "baseline_rps": 687.5333333333333,
+        "baseline_p99_s": 0.11609101295471191,
+        "detection_s": 0.33702473421179135,
+        "recovery_s": 26.990363666,
+        "lost": 50,
+        "corrupted": 1,
+        "throughput_frac": 0,
+        "p99_frac": 86.22984837376083
+      }
+    },
+    {
+      "fault": "slow_network",
+      "target": "workers[0]",
+      "at_s": 20,
+      "duration_s": 10,
+      "netem": "delay 200ms loss 5%",
+      "metrics": {
+        "baseline_rps": 666.6666666666666,
+        "baseline_p99_s": 0.11859679222106934,
+        "detection_s": 0.1389899853312997,
+        "recovery_s": 0.9929686790000005,
+        "lost": 0,
+        "corrupted": 0,
+        "throughput_frac": 0.3415,
+        "p99_frac": 10.835856631371989
+      }
+    },
+    {
+      "fault": "corrupt_output",
+      "target": "workers[1]",
+      "at_s": 20,
+      "duration_s": 10,
+      "metrics": {
+        "baseline_rps": 680.4,
+        "baseline_p99_s": 0.12058591842651367,
+        "detection_s": null,
+        "recovery_s": 0.9918243539999985,
+        "lost": 0,
+        "corrupted": 1741,
+        "throughput_frac": 0.9974524789339604,
+        "p99_frac": 0.9807305239098886
+      }
+    },
+    {
+      "fault": "storage_stall",
+      "target": "workers[0]",
+      "at_s": 20,
+      "duration_s": 30,
+      "metrics": {
+        "baseline_rps": 660.2,
+        "baseline_p99_s": 0.1251528263092041,
+        "detection_s": 0.23978988576928728,
+        "recovery_s": 13.999903154999998,
+        "lost": 32,
+        "corrupted": 2,
+        "throughput_frac": 0.7693071065194454,
+        "p99_frac": 1.2870235784267967
+      }
+    },
+    {
+      "fault": "memory_pressure",
+      "target": "workers[0]",
+      "at_s": 20,
+      "duration_s": 10,
+      "memory_frac": 0.8,
+      "metrics": {
+        "baseline_rps": 673.1333333333333,
+        "baseline_p99_s": 0.12125134468078613,
+        "detection_s": null,
+        "recovery_s": 3.9927908840000015,
+        "lost": 0,
+        "corrupted": 1,
+        "throughput_frac": 0.994519824370275,
+        "p99_frac": 1.0828114400322475
+      }
+    }
+  ]
+}

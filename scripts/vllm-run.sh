@@ -6,7 +6,7 @@ set -e
 cd "$(dirname "$0")/.."
 command -v go >/dev/null || PATH="$HOME/sdk/go/bin:$PATH"
 
-go build -o bin/ ./cmd/...
+go build -buildvcs=false -o bin/ ./cmd/...
 mkdir -p run
 rm -f run/*.log run/*.jsonl
 

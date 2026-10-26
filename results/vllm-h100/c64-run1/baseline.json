@@ -1,0 +1,22 @@
+{
+  "responses": {
+    "13": " To determine the number of sides a hexagon has, we need to recall that",
+    "5": " It stands for Central Processing Unit. The CPU is the brain of a computer and",
+    "6": " Happy is synonymous with joyful, elated, and exuberant. These words",
+    "7": " A. 365 B. 366 C. 3",
+    "8": " The boiling point of water at standard atmospheric pressure (1 atmosphere) is 1",
+    "9": " Mercury is the largest planet in our solar system, with a diameter of about "
+  },
+  "nondeterministic": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    10,
+    11,
+    12,
+    14,
+    15
+  ]
+}
