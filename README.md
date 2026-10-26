@@ -104,14 +104,14 @@ Before a fault is applied, its undo is written to `run/fault.journal`. The undo 
 
 Linux-only faults report an error on macOS. They are not skipped silently.
 
-**vLLM, on a Linux VM with an NVIDIA GPU, as root.**
+**vLLM or SGLang, on a Linux VM with an NVIDIA GPU, as root.**
 
 ```bash
-scripts/vm-setup.sh
-scripts/vllm-run.sh
+scripts/vm-setup.sh vllm
+scripts/vm-run.sh vllm
 ```
 
-Set `version` in `scenarios/vllm-2x.yaml` before running.
+Use `sglang` in place of `vllm` for SGLang. Setup prints the installed version: set it as `version` in `scenarios/vllm-2x.yaml` or `scenarios/sglang-2x.yaml` before running.
 
 Each run writes `report.json`. It records the stack, version, model, host, GPU, the scenario exactly as run, and the baseline. To render it:
 

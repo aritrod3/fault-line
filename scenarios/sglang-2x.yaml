@@ -1,0 +1,53 @@
+stack: sglang
+version: FILL-ME # ~/sglang-venv/bin/python -c "import sglang; print(sglang.__version__)"
+model: Qwen/Qwen2.5-0.5B-Instruct
+
+target:
+  router: http://127.0.0.1:8000/v1/completions
+  workers:
+    - start: [scripts/sglang-worker.sh, "0", "8001"]
+      pid_file: run/sglang0.pid
+      health: http://127.0.0.1:8001/health
+      iface: lo
+      port: 8001
+      slowfs_pid_file: run/slowfs.pid
+      cgroup: /sys/fs/cgroup/faultline-w0
+    - start: [scripts/sglang-worker.sh, "1", "8002"]
+      pid_file: run/sglang1.pid
+      health: http://127.0.0.1:8002/health
+      iface: lo
+      port: 8002
+      corrupt_pid_file: run/corrupter1.pid
+
+load:
+  prompts: prompts/basic.jsonl
+  concurrency: 64
+  duration: 180s # long enough for a killed worker to reload
+
+faults:
+  - type: kill_backend
+    target: workers[0]
+    at: 20s
+    duration: 10s
+  - type: hang_backend
+    target: workers[0]
+    at: 20s
+    duration: 10s
+  - type: slow_network
+    target: workers[0]
+    at: 20s
+    duration: 10s
+    netem: delay 200ms loss 5%
+  - type: corrupt_output
+    target: workers[1]
+    at: 20s
+    duration: 10s
+  - type: storage_stall
+    target: workers[0]
+    at: 20s
+    duration: 30s # the reload starts on slow storage
+  - type: memory_pressure
+    target: workers[0]
+    at: 20s
+    duration: 10s
+    memory_frac: 0.8

@@ -1,5 +1,5 @@
 #!/bin/sh
-# One-time setup on an Ubuntu GPU VM: Go, vLLM in a venv, and the model weights.
+# One-time setup on an Ubuntu GPU VM: Go, each stack in its own venv, and the model weights.
 set -e
 GO=go1.27.2
 MODEL="${MODEL:-Qwen/Qwen2.5-0.5B-Instruct}"
@@ -17,8 +17,11 @@ echo "$sum  $file" | sha256sum -c
 rm -rf go && tar -xzf "$file" && rm "$file"
 grep -qs 'sdk/go/bin' "$HOME/.profile" || echo 'export PATH="$HOME/sdk/go/bin:$PATH"' >> "$HOME/.profile"
 
-python3 -m venv "$HOME/vllm-venv"
-"$HOME/vllm-venv/bin/pip" install -q vllm
-"$HOME/vllm-venv/bin/python" -c "from huggingface_hub import snapshot_download; snapshot_download('$MODEL')"
-
-echo "vLLM $("$HOME/vllm-venv/bin/vllm" --version) ready; set it as version in scenarios/vllm-2x.yaml"
+# Each stack gets its own venv. Usage: vm-setup.sh [vllm] [sglang] (default: both)
+for stack in ${*:-vllm sglang}; do
+    python3 -m venv "$HOME/$stack-venv"
+    "$HOME/$stack-venv/bin/pip" install -q "$stack"
+    v=$("$HOME/$stack-venv/bin/python" -c "import $stack; print($stack.__version__)")
+    echo "$stack $v ready; set it as version in scenarios/$stack-2x.yaml"
+done
+"$HOME/$stack-venv/bin/python" -c "from huggingface_hub import snapshot_download; snapshot_download('$MODEL')"
