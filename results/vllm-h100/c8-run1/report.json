@@ -1,0 +1,136 @@
+{
+  "stack": "vllm",
+  "version": "0.31.0",
+  "model": "Qwen/Qwen2.5-0.5B-Instruct",
+  "host": {
+    "name": "faultline",
+    "os": "linux",
+    "arch": "amd64",
+    "cpus": 20,
+    "gpu": "NVIDIA H100 80GB HBM3",
+    "go": "go1.27.2"
+  },
+  "started": "2026-10-26T20:49:47.072691689Z",
+  "scenario": "stack: vllm\nversion: 0.31.0\nmodel: Qwen/Qwen2.5-0.5B-Instruct\n\ntarget:\n  router: http://127.0.0.1:8000/v1/completions\n  workers:\n    - start: [scripts/vllm-worker.sh, \"0\", \"8001\"]\n      pid_file: run/vllm0.pid\n      health: http://127.0.0.1:8001/health\n      iface: lo\n      port: 8001\n      slowfs_pid_file: run/slowfs.pid\n      cgroup: /sys/fs/cgroup/faultline-w0\n    - start: [scripts/vllm-worker.sh, \"1\", \"8002\"]\n      pid_file: run/vllm1.pid\n      health: http://127.0.0.1:8002/health\n      iface: lo\n      port: 8002\n      corrupt_pid_file: run/corrupter1.pid\n\nload:\n  prompts: prompts/basic.jsonl\n  concurrency: 8\n  duration: 180s # long enough for a killed worker to reload\n\nfaults:\n  - type: kill_backend\n    target: workers[0]\n    at: 20s\n    duration: 10s\n  - type: hang_backend\n    target: workers[0]\n    at: 20s\n    duration: 10s\n  - type: slow_network\n    target: workers[0]\n    at: 20s\n    duration: 10s\n    netem: delay 200ms loss 5%\n  - type: corrupt_output\n    target: workers[1]\n    at: 20s\n    duration: 10s\n  - type: storage_stall\n    target: workers[0]\n    at: 20s\n    duration: 30s # the reload starts on slow storage\n  - type: memory_pressure\n    target: workers[0]\n    at: 20s\n    duration: 10s\n    memory_frac: 0.8\n",
+  "baseline": {
+    "responses": {
+      "0": " The capital of France is Paris. \n\nTo verify this, I will use a",
+      "1": " Three primary colors are red, yellow, and blue. These colors can be used",
+      "10": " The opposite of \"cold\" is \"hot\". \n\nTo explain this in more",
+      "11": " The word is not a common one. It's actually quite rare, and it",
+      "12": " Brazil has a large number of languages spoken, including Portuguese, Spanish, and indigenous",
+      "13": " To determine the number of sides a hexagon has, we need to recall that",
+      "14": " What does it do?\nH2O is a molecule of water. It consists",
+      "15": " ___, _____.\nTo determine the next two numbers in the sequence 2,",
+      "2": " To find the product of \\(12 \\times 12\\), we",
+      "3": " Good morning in Spanish is \"Buenos días\". \n\nLet me explain:\n\n",
+      "4": " William Shakespeare\n\nWhat is the answer?\n\nWilliam Shakespeare wrote Hamlet. This famous",
+      "5": " It stands for Central Processing Unit. The CPU is the brain of a computer and",
+      "6": " Happy is synonymous with joyful, elated, and exuberant. These words",
+      "7": " A. 365 B. 366 C. 3",
+      "8": " The boiling point of water at standard atmospheric pressure (1 atmosphere) is 1",
+      "9": " Mercury is the largest planet in our solar system, with a diameter of about "
+    },
+    "nondeterministic": []
+  },
+  "results": [
+    {
+      "fault": "kill_backend",
+      "target": "workers[0]",
+      "at_s": 20,
+      "duration_s": 10,
+      "metrics": {
+        "baseline_rps": 155.33333333333334,
+        "baseline_p99_s": 0.05621933937072754,
+        "detection_s": 0.004297686841553627,
+        "recovery_s": 0.9920021579999982,
+        "lost": 4,
+        "corrupted": 74,
+        "throughput_frac": 1.0529327610872674,
+        "p99_frac": 1.0446562991675183
+      }
+    },
+    {
+      "fault": "hang_backend",
+      "target": "workers[0]",
+      "at_s": 20,
+      "duration_s": 10,
+      "metrics": {
+        "baseline_rps": 155.2,
+        "baseline_p99_s": 0.05479574203491211,
+        "detection_s": 0.1699660932397471,
+        "recovery_s": 0.9904765319999989,
+        "lost": 6,
+        "corrupted": 0,
+        "throughput_frac": 0,
+        "p99_frac": 182.6560501240047
+      }
+    },
+    {
+      "fault": "slow_network",
+      "target": "workers[0]",
+      "at_s": 20,
+      "duration_s": 10,
+      "netem": "delay 200ms loss 5%",
+      "metrics": {
+        "baseline_rps": 153.93333333333334,
+        "baseline_p99_s": 0.05918240547180176,
+        "detection_s": 0.08733089853820886,
+        "recovery_s": 0.9901094569999991,
+        "lost": 0,
+        "corrupted": 0,
+        "throughput_frac": 0.2865598383138444,
+        "p99_frac": 16.26061419092854
+      }
+    },
+    {
+      "fault": "corrupt_output",
+      "target": "workers[1]",
+      "at_s": 20,
+      "duration_s": 10,
+      "metrics": {
+        "baseline_rps": 154.93333333333334,
+        "baseline_p99_s": 0.05817365646362305,
+        "detection_s": null,
+        "recovery_s": 0.9912659300000008,
+        "lost": 0,
+        "corrupted": 775,
+        "throughput_frac": 0.9997131382673551,
+        "p99_frac": 0.9778194903236912
+      }
+    },
+    {
+      "fault": "storage_stall",
+      "target": "workers[0]",
+      "at_s": 20,
+      "duration_s": 30,
+      "metrics": {
+        "baseline_rps": 155.06666666666666,
+        "baseline_p99_s": 0.06141090393066406,
+        "detection_s": 1.4670131036428238,
+        "recovery_s": 0.9972460070000011,
+        "lost": 3,
+        "corrupted": 54,
+        "throughput_frac": 1.0235864440952354,
+        "p99_frac": 1.0416381961052272
+      }
+    },
+    {
+      "fault": "memory_pressure",
+      "target": "workers[0]",
+      "at_s": 20,
+      "duration_s": 10,
+      "memory_frac": 0.8,
+      "metrics": {
+        "baseline_rps": 156.8,
+        "baseline_p99_s": 0.05558514595031738,
+        "detection_s": 0.07729904758654627,
+        "recovery_s": 0.9927522109999991,
+        "lost": 0,
+        "corrupted": 0,
+        "throughput_frac": 1.0005668934240362,
+        "p99_frac": 1.0269793815759563
+      }
+    }
+  ]
+}
