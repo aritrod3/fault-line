@@ -6,7 +6,30 @@ faultline breaks a running LLM serving stack on purpose and reports how it fails
 
 For each fault, faultline reports five numbers: detection time, recovery time, requests lost, requests corrupted, and degradation.
 
-Results for vLLM are pending. The numbers produced so far come from a stand-in worker, which only tests the harness itself. They are not results.
+**Setup.** vLLM 0.31.0, Qwen2.5-0.5B-Instruct, two workers on one NVIDIA H100, 64 requests in flight, 3 runs. Each cell is the median of the 3 runs, with the range in brackets where it varied.
+
+| Fault | Detection | Recovery | Lost | Corrupted | Throughput | p99 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `kill_backend` | 0.0s | 27s (26 to 32) | 33 (30 to 34) | 2 | 0.78× | 1.3× |
+| `hang_backend` | 0.3s | 1s (1 to 27) | 50 (49 to 56) | 1 | 0.00× | 85× |
+| `slow_network` | 0.2s | 3s (1 to 6) | 0 | 0 (0 to 4) | 0.34× | 11× |
+| `corrupt_output` | none | 1s | 0 | 1456 (1287 to 1741) | 1.00× | 1.0× |
+| `storage_stall` | 0.2s | 14s (14 to 15) | 34 (32 to 35) | 1 | 0.77× | 1.3× |
+| `memory_pressure` | none | 2s | 0 | 3 | 1.00× | 1.1× |
+
+Full reports, baselines and logs are in [`results/vllm-h100/`](results/vllm-h100/).
+
+## Findings
+
+- **Silent corruption is invisible to the stack.** About 1,450 wrong answers were returned with no error, no slowdown and no reaction from anything in the stack.
+- **A hung worker stops all traffic.** Throughput fell to zero, because stuck requests filled every slot. A dead worker is less harmful: throughput only fell to 0.78×.
+- **Determinism breaks under load.** At 64 requests in flight, only 6 or 7 of 16 prompts gave the same answer every time, even at temperature 0 with a fixed seed. At 8 in flight, all 16 did.
+- **A restarted worker answers differently.** After a kill or a storage stall, the restarted worker returned answers that differ from the baseline, even at light load.
+- **The memory fault has no effect.** vLLM's memory is on the GPU, and cgroups only limit host memory.
+
+## Light load
+
+One run used 8 requests in flight. At that load, one worker could absorb all the traffic, so killing the other one changed nothing and most faults looked harmless. That run is kept in [`results/vllm-h100/c8-run1/`](results/vllm-h100/c8-run1/), but the main results use 64.
 
 ## How it works
 
@@ -102,3 +125,5 @@ bin/harness report report.json --format md
 - **Single host.** Network faults run on loopback, filtered to one worker's port.
 - **Memory.** cgroups limit host memory only. GPU memory is not affected.
 - **Precision.** Recovery time is measured to the nearest second.
+- **Noise.** Corruption counts of 1 to 4 outside `corrupt_output` are noise: a few answers that vary under load.
+- **Runs.** There are only 3 runs. Hang recovery varied widely between them.
