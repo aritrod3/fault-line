@@ -6,6 +6,9 @@
 set -e
 cd "$(dirname "$0")/.."
 stack="${1:-vllm}"
+# Cheap liveness path. SGLang's /health runs a test generation and takes ~1s.
+health=/health
+[ "$stack" = sglang ] && health=/v1/models
 command -v go >/dev/null || PATH="$HOME/sdk/go/bin:$PATH"
 
 go build -buildvcs=false -o bin/ ./cmd/...
@@ -27,10 +30,12 @@ trap cleanup EXIT
 bin/slowfs -src "$HOME/.cache/huggingface" -mnt "$PWD/run/hf" -pidfile run/slowfs.pid >>run/slowfs.log 2>&1 &
 until mountpoint -q run/hf; do sleep 0.2; done
 
-setsid "scripts/$stack-worker.sh" 0 8001 >>"run/${stack}0.log" 2>&1 &
+# One at a time: some stacks size their GPU memory from what is free.
 setsid "scripts/$stack-worker.sh" 1 8002 >>"run/${stack}1.log" 2>&1 &
+until curl -sf "localhost:8002$health" >/dev/null; do sleep 2; done
+setsid "scripts/$stack-worker.sh" 0 8001 >>"run/${stack}0.log" 2>&1 &
 bin/corrupter -listen 127.0.0.1:8012 -upstream http://127.0.0.1:8002 -pidfile run/corrupter1.pid >>run/corrupter1.log 2>&1 &
-bin/proxy -backends http://127.0.0.1:8001,http://127.0.0.1:8012 >>run/proxy.log 2>&1 &
+bin/proxy -health "$health" -backends http://127.0.0.1:8001,http://127.0.0.1:8012 >>run/proxy.log 2>&1 &
 echo $! > run/proxy.pid
 
 scenario="${2:-scenarios/$stack-2x.yaml}"

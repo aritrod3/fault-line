@@ -1,0 +1,37 @@
+02:26:14 baseline: 20s of normal load
+driver: 11180 requests, 0 failed
+02:26:35 wrote baseline.json: 9 prompts deterministic, 7 not
+02:26:35 fault 1/6: kill_backend on workers[0]
+02:27:07 reversed kill_backend workers[0]
+driver: 97134 requests, 31 failed
+02:29:37 fault 2/6: hang_backend on workers[0]
+02:30:09 reversed hang_backend workers[0]
+driver: 94352 requests, 60 failed
+02:32:40 fault 3/6: slow_network on workers[0]
+02:33:12 reversed slow_network workers[0]
+driver: 95911 requests, 0 failed
+02:35:43 fault 4/6: corrupt_output on workers[1]
+02:36:15 reversed corrupt_output workers[1]
+driver: 100846 requests, 0 failed
+02:38:45 fault 5/6: storage_stall on workers[0]
+02:39:37 reversed storage_stall workers[0]
+driver: 98761 requests, 35 failed
+02:41:48 fault 6/6: memory_pressure on workers[0]
+02:42:20 reversed memory_pressure workers[0]
+driver: 100039 requests, 0 failed
+02:44:51 wrote report.json
+
+## sglang 0.5.21 · model Qwen/Qwen2.5-0.5B-Instruct
+
+faultline, linux/amd64, 20 CPUs, GPU NVIDIA H100 80GB HBM3, go1.27.2 · 2026-10-27T02:26:35Z
+
+Baseline: 9 prompts deterministic, 7 not.
+
+| Fault | Target | Detection | Recovery | Lost | Corrupted | Throughput | p99 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| kill_backend | workers[0] | 0.0s | 25.0s | 31 | 0 | 0.92× | 0.9× |
+| hang_backend | workers[0] | 0.6s | not recovered | 60 | 0 | 0.00× | 57.3× |
+| slow_network | workers[0] | 0.4s | 13.0s | 0 | 2 | 0.44× | 7.4× |
+| corrupt_output | workers[1] | none | 5.0s | 0 | 1423 | 0.99× | 1.0× |
+| storage_stall | workers[0] | 0.3s | not recovered | 35 | 0 | 0.80× | 1.0× |
+| memory_pressure | workers[0] | none | 26.0s | 0 | 0 | 0.94× | 1.1× |

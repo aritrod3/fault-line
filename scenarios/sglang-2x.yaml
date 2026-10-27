@@ -1,5 +1,5 @@
 stack: sglang
-version: FILL-ME # ~/sglang-venv/bin/python -c "import sglang; print(sglang.__version__)"
+version: 0.5.21
 model: Qwen/Qwen2.5-0.5B-Instruct
 
 target:
@@ -7,14 +7,14 @@ target:
   workers:
     - start: [scripts/sglang-worker.sh, "0", "8001"]
       pid_file: run/sglang0.pid
-      health: http://127.0.0.1:8001/health
+      health: http://127.0.0.1:8001/v1/models # /health runs a generation, ~1s
       iface: lo
       port: 8001
       slowfs_pid_file: run/slowfs.pid
       cgroup: /sys/fs/cgroup/faultline-w0
     - start: [scripts/sglang-worker.sh, "1", "8002"]
       pid_file: run/sglang1.pid
-      health: http://127.0.0.1:8002/health
+      health: http://127.0.0.1:8002/v1/models
       iface: lo
       port: 8002
       corrupt_pid_file: run/corrupter1.pid
