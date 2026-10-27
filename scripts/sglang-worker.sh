@@ -15,6 +15,11 @@ export HF_HOME="$PWD/run/hf" HF_HUB_OFFLINE=1
 PY="${SGLANG_PY:-$HOME/sglang-venv/bin/python}"
 export PATH="$(dirname "$PY"):$PATH"
 
+# SGLang's memory fraction counts what is already in use on the GPU. Worker 1
+# starts first with 40%; worker 0 starts (and restarts) next to it, so 80% leaves it the other 40%.
+frac=0.4
+[ "$1" = 0 ] && frac=0.8
+
 exec "$PY" -m sglang.launch_server --model-path "${MODEL:-Qwen/Qwen2.5-0.5B-Instruct}" \
     --host 127.0.0.1 --port "$2" --random-seed 0 \
-    --mem-fraction-static 0.4 --context-length 2048
+    --mem-fraction-static "$frac" --context-length 2048

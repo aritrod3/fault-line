@@ -1,0 +1,137 @@
+{
+  "stack": "sglang",
+  "version": "0.5.21",
+  "model": "Qwen/Qwen2.5-0.5B-Instruct",
+  "host": {
+    "name": "faultline",
+    "os": "linux",
+    "arch": "amd64",
+    "cpus": 20,
+    "gpu": "NVIDIA H100 80GB HBM3",
+    "go": "go1.27.2"
+  },
+  "started": "2026-10-27T02:26:35.162766575Z",
+  "scenario": "stack: sglang\nversion: 0.5.21\nmodel: Qwen/Qwen2.5-0.5B-Instruct\n\ntarget:\n  router: http://127.0.0.1:8000/v1/completions\n  workers:\n    - start: [scripts/sglang-worker.sh, \"0\", \"8001\"]\n      pid_file: run/sglang0.pid\n      health: http://127.0.0.1:8001/v1/models # /health runs a generation, ~1s\n      iface: lo\n      port: 8001\n      slowfs_pid_file: run/slowfs.pid\n      cgroup: /sys/fs/cgroup/faultline-w0\n    - start: [scripts/sglang-worker.sh, \"1\", \"8002\"]\n      pid_file: run/sglang1.pid\n      health: http://127.0.0.1:8002/v1/models\n      iface: lo\n      port: 8002\n      corrupt_pid_file: run/corrupter1.pid\n\nload:\n  prompts: prompts/basic.jsonl\n  concurrency: 64\n  duration: 180s # long enough for a killed worker to reload\n\nfaults:\n  - type: kill_backend\n    target: workers[0]\n    at: 20s\n    duration: 10s\n  - type: hang_backend\n    target: workers[0]\n    at: 20s\n    duration: 10s\n  - type: slow_network\n    target: workers[0]\n    at: 20s\n    duration: 10s\n    netem: delay 200ms loss 5%\n  - type: corrupt_output\n    target: workers[1]\n    at: 20s\n    duration: 10s\n  - type: storage_stall\n    target: workers[0]\n    at: 20s\n    duration: 30s # the reload starts on slow storage\n  - type: memory_pressure\n    target: workers[0]\n    at: 20s\n    duration: 10s\n    memory_frac: 0.8\n",
+  "baseline": {
+    "responses": {
+      "1": " Three primary colors are red, yellow, and blue. These colors are used in",
+      "11": " The word is not a common one. The word is not a common one.",
+      "12": " Brazil is a country with a diverse population that speaks several languages. The official language",
+      "13": " To determine the number of sides a hexagon has, we need to recall the",
+      "15": " 32, 64, 128, 25",
+      "2": " To find the product of 12 times 12, you can use",
+      "7": " A. 365 B. 366 C. 3",
+      "8": " The boiling point of water is 100 degrees Celsius. This is a",
+      "9": " Mercury is the largest planet in the solar system. It is the closest planet to"
+    },
+    "nondeterministic": [
+      0,
+      3,
+      4,
+      5,
+      6,
+      10,
+      14
+    ]
+  },
+  "results": [
+    {
+      "fault": "kill_backend",
+      "target": "workers[0]",
+      "at_s": 20,
+      "duration_s": 10,
+      "metrics": {
+        "baseline_rps": 543.4666666666667,
+        "baseline_p99_s": 0.17664647102355957,
+        "detection_s": 0.012270184790406091,
+        "recovery_s": 24.990422282,
+        "lost": 31,
+        "corrupted": 0,
+        "throughput_frac": 0.9159306509649983,
+        "p99_frac": 0.9124588849642804
+      }
+    },
+    {
+      "fault": "hang_backend",
+      "target": "workers[0]",
+      "at_s": 20,
+      "duration_s": 10,
+      "metrics": {
+        "baseline_rps": 580.1333333333333,
+        "baseline_p99_s": 0.17499470710754395,
+        "detection_s": 0.573159284662843,
+        "recovery_s": null,
+        "lost": 60,
+        "corrupted": 0,
+        "throughput_frac": 0,
+        "p99_frac": 57.268521937216356
+      }
+    },
+    {
+      "fault": "slow_network",
+      "target": "workers[0]",
+      "at_s": 20,
+      "duration_s": 10,
+      "netem": "delay 200ms loss 5%",
+      "metrics": {
+        "baseline_rps": 548.4,
+        "baseline_p99_s": 0.17614388465881348,
+        "detection_s": 0.36241631414355524,
+        "recovery_s": 12.993979916,
+        "lost": 0,
+        "corrupted": 2,
+        "throughput_frac": 0.44412026906556445,
+        "p99_frac": 7.439772008971293
+      }
+    },
+    {
+      "fault": "corrupt_output",
+      "target": "workers[1]",
+      "at_s": 20,
+      "duration_s": 10,
+      "metrics": {
+        "baseline_rps": 556.4666666666667,
+        "baseline_p99_s": 0.1726682186126709,
+        "detection_s": null,
+        "recovery_s": 4.994266465999999,
+        "lost": 0,
+        "corrupted": 1423,
+        "throughput_frac": 0.9919731640110219,
+        "p99_frac": 1.0127474548585174
+      }
+    },
+    {
+      "fault": "storage_stall",
+      "target": "workers[0]",
+      "at_s": 20,
+      "duration_s": 30,
+      "metrics": {
+        "baseline_rps": 614.6,
+        "baseline_p99_s": 0.1567239761352539,
+        "detection_s": 0.2964453297742935,
+        "recovery_s": null,
+        "lost": 35,
+        "corrupted": 0,
+        "throughput_frac": 0.80074508791813,
+        "p99_frac": 1.0332015918508917
+      }
+    },
+    {
+      "fault": "memory_pressure",
+      "target": "workers[0]",
+      "at_s": 20,
+      "duration_s": 10,
+      "memory_frac": 0.8,
+      "metrics": {
+        "baseline_rps": 569.6666666666666,
+        "baseline_p99_s": 0.17139935493469238,
+        "detection_s": null,
+        "recovery_s": 25.991113648,
+        "lost": 0,
+        "corrupted": 0,
+        "throughput_frac": 0.9381704700604643,
+        "p99_frac": 1.1120585449178677
+      }
+    }
+  ]
+}

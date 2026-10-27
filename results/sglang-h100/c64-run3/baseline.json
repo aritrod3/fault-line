@@ -1,0 +1,22 @@
+{
+  "responses": {
+    "1": " Three primary colors are red, yellow, and blue. These colors are used in",
+    "11": " The word is not a common one. The word is not a common one.",
+    "12": " Brazil is a country with a diverse population that speaks several languages. The official language",
+    "13": " To determine the number of sides a hexagon has, we need to recall the",
+    "15": " 32, 64, 128, 25",
+    "7": " A. 365 B. 366 C. 3",
+    "8": " The boiling point of water is 100 degrees Celsius. This is a",
+    "9": " Mercury is the largest planet in the solar system. It is the closest planet to"
+  },
+  "nondeterministic": [
+    0,
+    2,
+    3,
+    4,
+    5,
+    6,
+    10,
+    14
+  ]
+}

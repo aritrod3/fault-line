@@ -1,6 +1,6 @@
 // proxy is the round-robin router under test. It skips backends that are
 // marked down, retries a request on the next backend if the connection is
-// refused, and re-checks every backend's /health once a second.
+// refused, and re-checks every backend's health path once a second.
 package main
 
 import (
@@ -25,6 +25,7 @@ type backend struct {
 func main() {
 	listen := flag.String("listen", "127.0.0.1:8000", "listen address")
 	backends := flag.String("backends", "http://127.0.0.1:8001,http://127.0.0.1:8002", "comma-separated backend URLs")
+	health := flag.String("health", "/health", "liveness path checked on each backend")
 	flag.Parse()
 
 	var bs []*backend
@@ -34,7 +35,7 @@ func main() {
 		bs = append(bs, b)
 	}
 
-	go healthLoop(bs)
+	go healthLoop(bs, *health)
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	var mu sync.Mutex
@@ -85,11 +86,11 @@ func main() {
 	log.Fatal(http.ListenAndServe(*listen, nil))
 }
 
-func healthLoop(bs []*backend) {
+func healthLoop(bs []*backend, path string) {
 	c := &http.Client{Timeout: 500 * time.Millisecond}
 	for range time.Tick(time.Second) {
 		for _, b := range bs {
-			resp, err := c.Get(b.url + "/health")
+			resp, err := c.Get(b.url + path)
 			ok := err == nil && resp.StatusCode == http.StatusOK
 			if resp != nil {
 				resp.Body.Close()
