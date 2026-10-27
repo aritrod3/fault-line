@@ -6,26 +6,30 @@ faultline breaks a running LLM serving stack on purpose and reports how it fails
 
 For each fault, faultline reports five numbers: detection time, recovery time, requests lost, requests corrupted, and degradation.
 
-**Setup.** vLLM 0.31.0, Qwen2.5-0.5B-Instruct, two workers on one NVIDIA H100, 64 requests in flight, 3 runs. Each cell is the median of the 3 runs, with the range in brackets where it varied.
+**Setup.** vLLM 0.31.0 and SGLang 0.5.21, each with Qwen2.5-0.5B-Instruct, two workers on one NVIDIA H100, the same faults and proxy, 64 requests in flight, 3 runs. Each cell is the median of the 3 runs, vLLM first, with the range in brackets where it varied. "Never" means not within the 3-minute window.
 
-| Fault | Detection | Recovery | Lost | Corrupted | Throughput | p99 |
-| --- | --- | --- | --- | --- | --- | --- |
-| `kill_backend` | 0.0s | 27s (26 to 32) | 33 (30 to 34) | 2 | 0.78× | 1.3× |
-| `hang_backend` | 0.3s | 1s (1 to 27) | 50 (49 to 56) | 1 | 0.00× | 85× |
-| `slow_network` | 0.2s | 3s (1 to 6) | 0 | 0 (0 to 4) | 0.34× | 11× |
-| `corrupt_output` | none | 1s | 0 | 1456 (1287 to 1741) | 1.00× | 1.0× |
-| `storage_stall` | 0.2s | 14s (14 to 15) | 34 (32 to 35) | 1 | 0.77× | 1.3× |
-| `memory_pressure` | none | 2s | 0 | 3 | 1.00× | 1.1× |
+| Fault | Recovery | Lost | Throughput | p99 |
+| --- | --- | --- | --- | --- |
+| `kill_backend` | 27s (26 to 32) / 25s (24 to 25) | 33 / 32 | 0.78× / 0.89× | 1.3× / 0.9× |
+| `hang_backend` | 1s (1 to 27) / 33s (13 to never) | 50 / 55 | 0.00× / 0.00× | 85× / 56× |
+| `slow_network` | 3s (1 to 6) / 13s (5 to 46) | 0 / 0 | 0.34× / 0.42× | 11× / 7.4× |
+| `corrupt_output` | 1s (1 to 3) / 1s (1 to 5) | 0 / 0 | 1.01× / 1.03× | 1.0× / 1.0× |
+| `storage_stall` | 14s (14 to 15) / 15s (11 to never) | 34 / 32 | 0.77× / 0.87× | 1.3× / 1.0× |
+| `memory_pressure` | 2s (1 to 4) / 6s (1 to 26) | 0 / 0 | 1.00× / 0.97× | 1.1× / 1.0× |
 
-Full reports, baselines and logs are in [`results/vllm-h100/`](results/vllm-h100/).
+Corrupted responses under `corrupt_output`: 1456 (1287 to 1741) for vLLM, 1362 (951 to 1423) for SGLang. Under every other fault: 0 to 4.
+
+Full reports, baselines and logs are in [`results/vllm-h100/`](results/vllm-h100/) and [`results/sglang-h100/`](results/sglang-h100/).
 
 ## Findings
 
-- **Silent corruption is invisible to the stack.** About 1,450 wrong answers were returned with no error, no slowdown and no reaction from anything in the stack.
-- **A hung worker stops all traffic.** Throughput fell to zero, because stuck requests filled every slot. A dead worker is less harmful: throughput only fell to 0.78×.
-- **Determinism breaks under load.** At 64 requests in flight, only 6 or 7 of 16 prompts gave the same answer every time, even at temperature 0 with a fixed seed. At 8 in flight, all 16 did.
-- **A restarted worker answers differently.** After a kill or a storage stall, the restarted worker returned answers that differ from the baseline, even at light load.
-- **The memory fault has no effect.** vLLM's memory is on the GPU, and cgroups only limit host memory.
+- **Silent corruption is invisible to the stack.** About 1,400 wrong answers per run were returned with no error, no slowdown and no reaction from either stack.
+- **A hung worker stops all traffic.** On both stacks, throughput fell to zero, because stuck requests filled every slot. A dead worker is less harmful: throughput only fell to about 0.8×.
+- **The two stacks fail almost the same way.** Both lose about 30 requests when a worker dies, and both restart it in about 25 seconds.
+- **Determinism breaks under load.** At 64 requests in flight, only 6 to 9 of 16 prompts gave the same answer every time, even at temperature 0 with a fixed seed. At 8 in flight, all 16 did (vLLM).
+- **A restarted vLLM worker answers differently.** At 8 in flight, where answers are otherwise stable, the restarted worker returned 74 changed answers after a kill and 54 after a storage stall. At 64 in flight the effect is lost in the noise. SGLang was only run at 64, so this was not tested for it.
+- **SGLang handles slow network better, but recovers less consistently.** Its p99 rose 7.4×, against 11× for vLLM. But its recovery ranged from 5 to 46 seconds, and twice a fault did not recover within the window.
+- **The memory fault has no effect.** Both stacks keep their memory on the GPU, and cgroups only limit host memory.
 
 ## Light load
 
@@ -126,4 +130,5 @@ bin/harness report report.json --format md
 - **Memory.** cgroups limit host memory only. GPU memory is not affected.
 - **Precision.** Recovery time is measured to the nearest second.
 - **Noise.** Corruption counts of 1 to 4 outside `corrupt_output` are noise: a few answers that vary under load.
-- **Runs.** There are only 3 runs. Hang recovery varied widely between them.
+- **Runs.** There are only 3 runs per stack. Hang recovery varied widely between them.
+- **Setup differences.** SGLang used about 73 GB of GPU memory, against 63 GB for vLLM. SGLang's liveness check uses `/v1/models`, because its `/health` runs a generation and takes about 1 second.
